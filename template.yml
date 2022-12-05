@@ -1,0 +1,106 @@
+# This is the SAM template that represents the architecture of your serverless application
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-template-basics.html
+
+# The AWSTemplateFormatVersion identifies the capabilities of the template
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/format-version-structure.html
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Demo Rest API
+
+# Transform section specifies one or more macros that AWS CloudFormation uses to process your template
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-section-structure.html
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  ENV: # Changed this to remove underscore
+    Description: "Env-Stage"
+    Type: "String"
+    Default: "IAMEMPTY"
+
+  AllowPayment: # Changed this to remove underscore
+    Description: "ALLOW PAYMENT TO COLLECT"
+    Type: "Number"
+    Default: "0"
+
+# Resources declares the AWS resources that you want to include in the stack
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html
+Resources:
+  # Each Lambda function is defined by properties:
+  # https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+
+  MWAuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/auth
+      Handler: authorizer.handler
+      Runtime: nodejs16.x
+
+  CustomerAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: MWAuthorizer
+        Authorizers:
+          MWAuthorizer:
+            FunctionArn: !GetAtt MWAuthFunction.Arn
+
+  ## Helpers layers
+  HelperLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: Helpers
+      Description: Layer that will be shared across multiple microservices
+      LicenseInfo: "Available under the MIT license."
+      ContentUri: src/layer
+      CompatibleRuntimes:
+        - nodejs14.x
+        - nodejs16.x
+
+  CustomerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/customer/
+      Handler: index.lambdaHandler
+      Runtime: nodejs16.x
+      Environment:
+        Variables:
+          ENV: !Ref ENV
+          AllowPayment: !Ref AllowPayment
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 100
+      Description: A simple example includes a HTTP get method to get all items from a DynamoDB table.
+      Layers:
+        - !Ref HelperLayer
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CustomerAPI
+            Path: /customer
+            Method: GET
+        Post:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CustomerAPI
+            Path: /customer
+            Method: POST
+        Patch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CustomerAPI
+            Path: /customer
+            Method: PATCH
+  # Each Lambda function is defined by properties:
+  # https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+
+Outputs:
+  WebEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value: !Sub "https://${CustomerAPI}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
